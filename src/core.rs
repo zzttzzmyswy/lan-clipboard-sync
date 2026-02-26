@@ -17,7 +17,6 @@ const SUPPRESS_WINDOW: Duration = Duration::from_millis(1500);
 /// 核心服务：封装剪贴板监听、网络服务器与去重逻辑。
 pub struct CoreService {
     config: AppConfig,
-    instance_id: String,
     clipboard_change_rx: mpsc::Receiver<()>,
     incoming_msg_rx: mpsc::Receiver<ProtocolMessage>,
     _clipboard_watcher: JoinHandle<()>,
@@ -45,14 +44,8 @@ impl CoreService {
             }
         });
 
-        let instance_id = config
-            .instance_id
-            .clone()
-            .unwrap_or_else(|| hostname::get().unwrap_or_default().to_string_lossy().to_string());
-
         Ok(Self {
             config,
-            instance_id,
             clipboard_change_rx: clip_rx,
             incoming_msg_rx: incoming_rx,
             _clipboard_watcher: watcher,
@@ -122,13 +115,9 @@ impl CoreService {
                 }
                 Some(msg) = self.incoming_msg_rx.recv() => {
                     tracing::debug!("received message from peer: {:?}", msg);
-                    let ProtocolMessage::ClipboardUpdate { instance_id, content_type, payload_size: _, payload } = msg;
-                    if instance_id == self.instance_id {
-                        continue;
-                    }
+                    let ProtocolMessage::ClipboardUpdate { content_type, payload_size: _, payload } = msg;
                     tracing::info!(
-                        "received remote clipboard from instance_id={} type={:?} bytes={}",
-                        instance_id,
+                        "received remote clipboard type={:?} bytes={}",
                         content_type,
                         payload.len()
                     );
@@ -156,7 +145,6 @@ impl CoreService {
             ClipboardItem::Text(text) => {
                 let payload = text.as_bytes().to_vec();
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
-                    instance_id: self.instance_id.clone(),
                     content_type: ContentType::Text,
                     payload_size: payload.len() as u64,
                     payload,
@@ -165,7 +153,6 @@ impl CoreService {
             ClipboardItem::Image(png) => {
                 let payload = png.clone();
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
-                    instance_id: self.instance_id.clone(),
                     content_type: ContentType::Image,
                     payload_size: payload.len() as u64,
                     payload,
@@ -213,7 +200,6 @@ impl CoreService {
                 }
                 let payload = serde_json::to_vec(&entries)?;
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
-                    instance_id: self.instance_id.clone(),
                     content_type: ContentType::Files,
                     payload_size: payload.len() as u64,
                     payload,
@@ -238,13 +224,21 @@ impl CoreService {
                 let entries: Vec<FileEntry> = serde_json::from_slice(payload)?;
                 let base = self.download_dir();
                 std::fs::create_dir_all(&base)?;
+                
+                // 创建时间戳子目录
+                let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+                let timestamp_dir = base.join(&timestamp);
+                std::fs::create_dir_all(&timestamp_dir)?;
+                tracing::info!("created download directory: {}", timestamp_dir.display());
+                
                 let mut files = Vec::new();
                 for e in entries {
-                    let path = base.join(&e.name);
+                    let path = timestamp_dir.join(&e.name);
                     std::fs::write(&path, &e.content)?;
                     files.push(ClipboardFile {
                         path: path.to_string_lossy().to_string(),
                     });
+                    tracing::debug!("saved file: {}", path.display());
                 }
                 Ok(Some(ClipboardItem::Files(files)))
             }

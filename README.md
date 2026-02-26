@@ -53,13 +53,10 @@ cargo build --release
 listen_port = 5000
 
 # 对称加密密钥，32 字节的十六进制字符串（256-bit key）
-secret_key = "af3c2f3b7c9eaf3c2f3b7c9eaf3c2f3b"
+secret_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 # 最大允许外发的文件大小（字节）
 max_file_size = 10485760 # 10MB
-
-# 实例 ID，可选；为空时由程序生成
-instance_id = "host-a-01"
 
 [[peers]]
 host = "192.168.1.23"
@@ -77,7 +74,6 @@ port = 5000
   "listen_port": 5000,
   "secret_key": "af3c2f3b7c9eaf3c2f3b7c9eaf3c2f3b",
   "max_file_size": 10485760,
-  "instance_id": "host-a-01",
   "peers": [
     { "host": "192.168.1.23", "port": 5000 },
     { "host": "office-pc.local", "port": 5000 }

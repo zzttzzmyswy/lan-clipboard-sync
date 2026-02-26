@@ -31,8 +31,6 @@ pub struct AppConfig {
     #[serde(default = "AppConfig::default_max_file_size")]
     pub max_file_size: u64,
     #[serde(default)]
-    pub instance_id: Option<String>,
-    #[serde(default)]
     pub peers: Vec<PeerConfig>,
 }
 

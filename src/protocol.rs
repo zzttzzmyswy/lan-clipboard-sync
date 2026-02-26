@@ -34,7 +34,6 @@ pub struct FileEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProtocolMessage {
     ClipboardUpdate {
-        instance_id: String,
         content_type: ContentType,
         payload_size: u64,
         payload: Vec<u8>,
@@ -50,16 +49,11 @@ pub fn encode_message(msg: &ProtocolMessage) -> Result<Vec<u8>> {
     buf.push(VERSION);
     match msg {
         ProtocolMessage::ClipboardUpdate {
-            instance_id,
             content_type,
             payload_size,
             payload,
         } => {
             buf.push(MSG_TYPE_CLIPBOARD);
-            let id_bytes = instance_id.as_bytes();
-            let id_len = id_bytes.len() as u32;
-            buf.extend_from_slice(&id_len.to_be_bytes());
-            buf.extend_from_slice(id_bytes);
             buf.push(*content_type as u8);
             buf.extend_from_slice(&payload_size.to_be_bytes());
             buf.extend_from_slice(payload);
@@ -82,19 +76,9 @@ pub fn decode_message(mut data: &[u8]) -> Result<ProtocolMessage> {
 
     match msg_type {
         MSG_TYPE_CLIPBOARD => {
-            if data.len() < 4 {
-                return Err(anyhow!("message too short for instance_id_len"));
-            }
-            let mut len_bytes = [0u8; 4];
-            len_bytes.copy_from_slice(&data[..4]);
-            let id_len = u32::from_be_bytes(len_bytes) as usize;
-            data = &data[4..];
-            if data.len() < id_len + 1 + 8 {
+            if data.len() < 1 + 8 {
                 return Err(anyhow!("message too short for body"));
             }
-            let id_bytes = &data[..id_len];
-            let instance_id = String::from_utf8(id_bytes.to_vec())?;
-            data = &data[id_len..];
             let content_type = ContentType::try_from(data[0])?;
             data = &data[1..];
             let mut sz_bytes = [0u8; 8];
@@ -103,7 +87,6 @@ pub fn decode_message(mut data: &[u8]) -> Result<ProtocolMessage> {
             data = &data[8..];
             let payload = data.to_vec();
             Ok(ProtocolMessage::ClipboardUpdate {
-                instance_id,
                 content_type,
                 payload_size,
                 payload,
@@ -144,7 +127,6 @@ mod tests {
     #[test]
     fn encode_decode_roundtrip() {
         let msg = ProtocolMessage::ClipboardUpdate {
-            instance_id: "test".into(),
             content_type: ContentType::Text,
             payload_size: 5,
             payload: b"hello".to_vec(),
@@ -153,12 +135,10 @@ mod tests {
         let decoded = decode_message(&bytes).unwrap();
         match decoded {
             ProtocolMessage::ClipboardUpdate {
-                instance_id,
                 content_type,
                 payload_size,
                 payload,
             } => {
-                assert_eq!(instance_id, "test");
                 assert!(matches!(content_type, ContentType::Text));
                 assert_eq!(payload_size, 5);
                 assert_eq!(payload, b"hello");
