@@ -6,6 +6,7 @@ use crate::protocol::{decode_message, encode_frame, encode_message, ProtocolMess
 use anyhow::{anyhow, Result};
 use chacha20poly1305::Key;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -65,7 +66,7 @@ async fn handle_connection(
     Ok(())
 }
 
-/// 将剪贴板更新消息加密后广播到配置中的所有 peers。
+/// 将剪贴板更新消息加密后广播到配置中的所有 peers（2秒超时，并行执行）。
 pub async fn broadcast_to_peers(config: &AppConfig, msg: &ProtocolMessage) -> Result<()> {
     let key = key_from_hex(&config.secret_key)?;
     let body = encode_message(msg)?;
@@ -76,20 +77,41 @@ pub async fn broadcast_to_peers(config: &AppConfig, msg: &ProtocolMessage) -> Re
     frame_body.extend_from_slice(&ciphertext);
     let frame = encode_frame(&frame_body);
 
+    let timeout_duration = Duration::from_secs(2);
+    let mut tasks = Vec::new();
+
     for peer in &config.peers {
         let addr = format!("{}:{}", peer.host, peer.port);
-        tracing::debug!("broadcasting to {addr}");
-        match TcpStream::connect(&addr).await {
-            Ok(mut stream) => {
-                if let Err(e) = stream.write_all(&frame).await {
-                    tracing::warn!("send to {addr} failed: {e}");
+        let frame_clone = frame.clone();
+        let addr_clone = addr.clone();
+
+        let task = tokio::spawn(async move {
+            let result = tokio::time::timeout(timeout_duration, async {
+                let mut stream = TcpStream::connect(&addr_clone).await?;
+                stream.write_all(&frame_clone).await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+
+            match result {
+                Ok(Ok(())) => {
+                    tracing::debug!("successfully sent to {addr_clone}");
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("send to {addr_clone} failed: {e}");
+                }
+                Err(_) => {
+                    tracing::warn!("send to {addr_clone} timed out after 3s");
                 }
             }
-            Err(e) => {
-                tracing::warn!("connect to {addr} failed: {e}");
-            }
-        }
+        });
+        tasks.push(task);
     }
+
+    for task in tasks {
+        let _ = task.await;
+    }
+
     Ok(())
 }
 

@@ -116,10 +116,12 @@ impl CoreService {
                         if let Some(msg) = self.build_clipboard_message(&item)? {
                             tracing::info!("broadcasting clipboard update to peers");
                             broadcast_to_peers(&self.config, &msg).await?;
+                            tracing::debug!("broadcasted clipboard update to peers successfully");
                         }
                     }
                 }
                 Some(msg) = self.incoming_msg_rx.recv() => {
+                    tracing::debug!("received message from peer: {:?}", msg);
                     let ProtocolMessage::ClipboardUpdate { instance_id, content_type, payload_size: _, payload } = msg;
                     if instance_id == self.instance_id {
                         continue;
