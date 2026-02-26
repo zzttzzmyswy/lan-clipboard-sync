@@ -24,8 +24,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hex = "0.4"
 chrono = "0.4"
-tray-item = { version = "0.10", features = ["ksni"] }
 image = "0.25"
+
+# tray-item 按平台分别配置：ksni 依赖 libdbus，仅 Linux 有，Windows 无需
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-item = { version = "0.10", features = ["ksni"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+tray-item = { version = "0.10", default-features = false }
 
 [build-dependencies]
 image = "0.25"
