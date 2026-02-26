@@ -100,9 +100,8 @@ port = 5000
    cargo run --release -c /path/to/your/config.toml
    ```
 5. 程序启动后会在系统托盘出现一个图标，可通过右键菜单进行：
-   - **Restart**：重启后台服务进程
    - **Quit**：退出程序
-   - **Open Config**：在默认编辑器中打开配置文件
+   - **Copy Config Path**：在默认编辑器中打开配置文件
 
 ## 运行机制概览
 
