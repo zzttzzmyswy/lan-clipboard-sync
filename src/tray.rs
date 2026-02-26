@@ -1,4 +1,6 @@
 //! 系统托盘支持：提供托盘图标、菜单和交互功能。
+//!
+//! 图标在编译期通过 `include_bytes!` 内嵌到二进制中，运行时无需加载外部文件。
 
 use anyhow::{anyhow, Result};
 use clipboard_rs::Clipboard;
@@ -6,6 +8,77 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tray_item::{IconSource, TrayItem};
+
+/// 编译期内嵌的托盘图标（PNG）
+const ICON_PNG: &[u8] = include_bytes!("../resources/icon.png");
+
+/// 从内嵌的 PNG 创建托盘图标源。
+///
+/// - Linux (ksni)：解码 PNG 为像素数据，使用 IconSource::Data
+/// - Windows：使用 build.rs 嵌入的 ICO 资源
+fn embedded_tray_icon() -> Result<IconSource> {
+    #[cfg(target_os = "linux")]
+    {
+        use image::ImageReader;
+        use std::io::Cursor;
+
+        let decoder = ImageReader::new(Cursor::new(ICON_PNG))
+            .with_guessed_format()
+            .map_err(|e| anyhow!("failed to read icon: {}", e))?
+            .decode()
+            .map_err(|e| anyhow!("failed to decode icon: {}", e))?;
+
+        let rgba = decoder.to_rgba8();
+        let (width, height) = (rgba.width() as i32, rgba.height() as i32);
+        tracing::info!("icon width: {}, height: {}", width, height);
+
+        // Status Notifier 使用 ARGB32 网络字节序：每像素 (A, R, G, B)
+        let mut argb_data = Vec::with_capacity(rgba.len());
+        for chunk in rgba.chunks_exact(4) {
+            let [r, g, b, a] = chunk else { unreachable!() };
+            //argb_data.extend_from_slice(&[*a, *r, *g, *b]);
+            argb_data.extend_from_slice(&[*a, *r, *g, *b]);
+        }
+
+        Ok(IconSource::Data {
+            width,
+            height,
+            data: argb_data,
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Ok(IconSource::Resource("MAINICON"))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use image::ImageReader;
+        use std::io::Cursor;
+
+        let decoder = ImageReader::new(Cursor::new(ICON_PNG))
+            .with_guessed_format()
+            .map_err(|e| anyhow!("failed to read icon: {}", e))?
+            .decode()
+            .map_err(|e| anyhow!("failed to decode icon: {}", e))?;
+
+        let rgba = decoder.to_rgba8();
+        let (width, height) = (rgba.width() as i32, rgba.height() as i32);
+        let data = rgba.into_raw();
+
+        Ok(IconSource::Data {
+            width,
+            height,
+            data,
+        })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        Ok(IconSource::Resource(""))
+    }
+}
 
 /// 托盘回调事件类型。
 #[derive(Debug, Clone, PartialEq)]
@@ -33,8 +106,8 @@ impl TrayManager {
         let (event_tx, event_rx) = mpsc::channel();
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        // 创建托盘项，使用系统默认图标
-        let icon_source = IconSource::Resource("");
+        // 创建托盘项，使用内嵌图标（编译期嵌入，不依赖外部文件）
+        let icon_source = embedded_tray_icon()?;
         let mut tray = TrayItem::new("LAN Clipboard Sync", icon_source)
             .map_err(|e| anyhow!("failed to create tray item: {}", e))?;
 
