@@ -50,7 +50,7 @@ fn embedded_tray_icon() -> Result<IconSource> {
 
     #[cfg(target_os = "windows")]
     {
-        Ok(IconSource::Resource("MAINICON"))
+        Ok(IconSource::Resource("tray-default"))
     }
 
     #[cfg(target_os = "macos")]

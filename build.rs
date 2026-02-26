@@ -28,8 +28,8 @@ fn embed_windows_icon() {
     let ico_file = File::create(&ico_path).expect("无法创建 ico 文件");
     icon_dir.write(ico_file).expect("无法写入 ico 文件");
 
-    // 嵌入到 Windows 可执行文件，使用 MAINICON 名称以便 tray-item 加载
+    // 嵌入到 Windows 可执行文件，使用 tray-default 名称以便 tray-item 加载
     let mut res = winres::WindowsResource::new();
-    res.set_icon_with_id(&ico_path.to_string_lossy(), "MAINICON");
+    res.set_icon_with_id(&ico_path.to_string_lossy(), "tray-default");
     res.compile().expect("无法编译 Windows 资源");
 }
