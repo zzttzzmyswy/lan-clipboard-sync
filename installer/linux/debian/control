@@ -1,0 +1,19 @@
+Package: lan-clipboard-sync
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Your Name <your.email@example.com>
+Homepage: https://github.com/zzttzzmyswy/lan-clipboard-sync
+Description: A LAN clipboard synchronization tool
+ A LAN clipboard synchronization tool supporting text, images, and files
+ across Windows and Linux. This tool automatically syncs clipboard content
+ between multiple devices on the same local network using encrypted
+ communication.
+ .
+ Features:
+  - Text, image, and file synchronization
+  - End-to-end encryption using ChaCha20-Poly1305
+  - Cross-platform support (Windows and Linux)
+  - System tray integration for easy control
+  - Configurable peers and file size limits

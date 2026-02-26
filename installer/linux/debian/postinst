@@ -1,0 +1,83 @@
+#!/bin/bash
+set -e
+
+# 系统服务名称
+SERVICE_NAME="lan-clipboard-sync"
+
+case "$1" in
+    configure)
+        # 创建必要的目录
+        mkdir -p /etc/lan-clipboard-sync
+        mkdir -p /usr/share/doc/lan-clipboard-sync
+        mkdir -p /var/lib/lan-clipboard-sync
+
+        # 如果配置文件不存在，则复制模板
+        if [ ! -f /etc/lan-clipboard-sync/config.toml ]; then
+            cp /usr/share/lan-clipboard-sync/config-template.toml /etc/lan-clipboard-sync/config.toml
+            echo "已创建默认配置文件: /etc/lan-clipboard-sync/config.toml"
+            echo "请编辑此文件并配置您的对端设备信息。"
+        fi
+
+        # 设置配置文件权限
+        chmod 644 /etc/lan-clipboard-sync/config.toml
+
+        # 创建 systemd 服务文件
+        if [ -f /etc/systemd/system ]; then
+            cat > /etc/systemd/system/$SERVICE_NAME.service << 'EOF'
+[Unit]
+Description=LAN Clipboard Synchronization Service
+After=network.target
+
+[Service]
+Type=simple
+User=lan-clipboard
+Group=lan-clipboard
+ExecStart=/usr/bin/lan-clipboard-sync --config /etc/lan-clipboard-sync/config.toml
+Restart=always
+RestartSec=5
+
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/lan-clipboard-sync
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+            # 创建专用用户（如果不存在）
+            if ! id -u lan-clipboard >/dev/null 2>&1; then
+                useradd --system \
+                        --home-dir /var/lib/lan-clipboard-sync \
+                        --shell /usr/sbin/nologin \
+                        --group lan-clipboard || true
+            fi
+
+            # 设置权限
+            chown -R lan-clipboard:lan-clipboard /var/lib/lan-clipboard-sync
+
+            # 重新加载 systemd
+            systemctl daemon-reload
+
+            echo ""
+            echo "安装完成！"
+            echo "配置文件位置: /etc/lan-clipboard-sync/config.toml"
+            echo "启用服务: sudo systemctl enable $SERVICE_NAME"
+            echo "启动服务: sudo systemctl start $SERVICE_NAME"
+            echo "查看状态: sudo systemctl status $SERVICE_NAME"
+            echo ""
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

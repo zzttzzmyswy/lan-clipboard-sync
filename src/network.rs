@@ -101,7 +101,7 @@ pub async fn broadcast_to_peers(config: &AppConfig, msg: &ProtocolMessage) -> Re
                     tracing::warn!("send to {addr_clone} failed: {e}");
                 }
                 Err(_) => {
-                    tracing::warn!("send to {addr_clone} timed out after 3s");
+                    tracing::debug!("send to {addr_clone} timed out after 2s");
                 }
             }
         });

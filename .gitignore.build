@@ -1,0 +1,26 @@
+# 构建输出目录
+dist/
+target/
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Rust
+Cargo.lock
+
+# 临时文件
+*.tmp
+*.log
+
+# 安装程序临时文件
+installer/windows/*.exe
+!installer/windows/*.iss

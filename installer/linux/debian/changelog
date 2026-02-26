@@ -1,0 +1,9 @@
+lan-clipboard-sync (0.1.0) unstable; urgency=medium
+
+  * Initial release
+  * Cross-platform clipboard synchronization tool
+  * Support for text, images, and files
+  - Encrypted communication using ChaCha20-Poly1305
+  - System tray integration
+
+ -- Your Name <your.email@example.com>  $(date -R)
