@@ -3,7 +3,6 @@
 //! 图标在编译期通过 `include_bytes!` 内嵌到二进制中，运行时无需加载外部文件。
 
 use anyhow::{anyhow, Result};
-use clipboard_rs::Clipboard;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -211,17 +210,12 @@ fn copy_config_dir_to_clipboard(config_path: &std::path::Path) {
         let dir_str = dir_path.to_string_lossy().to_string();
         tracing::info!("copying config directory to clipboard: {}", dir_str);
 
-        // 使用 clipboard_rs::ClipboardContext 将路径复制到剪贴板
-        match clipboard_rs::ClipboardContext::new() {
-            Ok(clipboard) => {
-                if let Err(e) = clipboard.set_text(dir_str.clone()) {
-                    tracing::error!("failed to copy to clipboard: {}", e);
-                } else {
-                    tracing::info!("successfully copied to clipboard: {}", dir_str);
-                }
+        match crate::clipboard::write_text_to_clipboard(&dir_str) {
+            Ok(()) => {
+                tracing::info!("successfully copied to clipboard: {}", dir_str);
             }
             Err(e) => {
-                tracing::error!("failed to create clipboard context: {}", e);
+                tracing::error!("failed to copy to clipboard: {}", e);
             }
         }
     } else {
