@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tray_item::{IconSource, TrayItem};
 
 /// 编译期内嵌的托盘图标（PNG）
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const ICON_PNG: &[u8] = include_bytes!("../resources/icon.png");
 
 /// 从内嵌的 PNG 创建托盘图标源。
