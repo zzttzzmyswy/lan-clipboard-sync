@@ -78,7 +78,7 @@ fn embedded_tray_icon() -> Result<IconSource> {
 
         let hicon = unsafe {
             CreateIcon(
-                std::ptr::null_mut(),
+                0_isize, // HINSTANCE: 0 表示无模块实例
                 width,
                 height,
                 1,
@@ -88,7 +88,7 @@ fn embedded_tray_icon() -> Result<IconSource> {
             )
         };
 
-        if hicon.is_null() {
+        if hicon == 0 {
             return Err(anyhow!("CreateIcon failed"));
         }
 
@@ -153,6 +153,12 @@ impl TrayManager {
         let icon_source = embedded_tray_icon()?;
         let mut tray = TrayItem::new("LAN Clipboard Sync", icon_source)
             .map_err(|e| anyhow!("failed to create tray item: {}", e))?;
+
+        // 添加不可点击的标题信息
+        tray.add_label("LAN Clipboard Sync")
+            .map_err(|e| anyhow!("failed to add title label: {}", e))?;
+        tray.add_label(format!("Version: v{}", env!("CARGO_PKG_VERSION")).as_str())
+            .map_err(|e| anyhow!("failed to add version label: {}", e))?;
 
         // 添加菜单项
         let config_path_clone = config_path.clone();
