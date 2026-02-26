@@ -33,6 +33,9 @@ tray-item = { version = "0.10", features = ["ksni"] }
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-item = { version = "0.10", default-features = false }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
 [build-dependencies]
 image = "0.25"
 ico = "0.5"

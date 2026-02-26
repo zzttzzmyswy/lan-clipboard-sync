@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tray_item::{IconSource, TrayItem};
 
 /// 编译期内嵌的托盘图标（PNG）
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 const ICON_PNG: &[u8] = include_bytes!("../resources/icon.png");
 
 /// 从内嵌的 PNG 创建托盘图标源。
 ///
 /// - Linux (ksni)：解码 PNG 为像素数据，使用 IconSource::Data
-/// - Windows：使用 build.rs 嵌入的 ICO 资源
+/// - Windows：解码 PNG 并运行时生成 HICON，使用 IconSource::RawIcon
+/// - macOS：解码 PNG 为像素数据，使用 IconSource::Data
 fn embedded_tray_icon() -> Result<IconSource> {
     #[cfg(target_os = "linux")]
     {
@@ -50,7 +51,48 @@ fn embedded_tray_icon() -> Result<IconSource> {
 
     #[cfg(target_os = "windows")]
     {
-        Ok(IconSource::Resource("tray-default"))
+        use image::ImageReader;
+        use std::io::Cursor;
+        use windows_sys::Win32::UI::WindowsAndMessaging::CreateIcon;
+
+        let img = ImageReader::new(Cursor::new(ICON_PNG))
+            .with_guessed_format()
+            .map_err(|e| anyhow!("failed to read icon: {}", e))?
+            .decode()
+            .map_err(|e| anyhow!("failed to decode icon: {}", e))?;
+
+        let rgba_img = img.to_rgba8();
+        let width = rgba_img.width() as i32;
+        let height = rgba_img.height() as i32;
+        let mut rgba = rgba_img.into_raw();
+        let pixel_count = (width * height) as usize;
+
+        // CreateIcon 需要：AND 遮罩（从 alpha 派生）+ BGRA 颜色数据
+        // AND 遮罩：透明(alpha=0) -> 255，不透明(alpha=255) -> 0
+        let mut and_mask = Vec::with_capacity(pixel_count);
+        let pixels = unsafe { std::slice::from_raw_parts_mut(rgba.as_mut_ptr() as *mut [u8; 4], pixel_count) };
+        for pixel in pixels {
+            and_mask.push(pixel[3].wrapping_sub(u8::MAX)); // 反转 alpha
+            pixel.swap(0, 2); // RGBA -> BGRA
+        }
+
+        let hicon = unsafe {
+            CreateIcon(
+                std::ptr::null_mut(),
+                width,
+                height,
+                1,
+                32,
+                and_mask.as_ptr(),
+                rgba.as_ptr(),
+            )
+        };
+
+        if hicon.is_null() {
+            return Err(anyhow!("CreateIcon failed"));
+        }
+
+        Ok(IconSource::RawIcon(hicon))
     }
 
     #[cfg(target_os = "macos")]
