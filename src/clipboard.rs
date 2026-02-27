@@ -236,7 +236,7 @@ impl WaylandClipboardBackend {
         // 图片: 尝试 image/png
         let image_mime = mime_types
             .iter()
-            .find(|m| m.starts_with("image/"))
+            .find(|m| m.starts_with("image/png"))
             .map(|s| s.as_str());
         if let Some(mime) = image_mime {
             if let Ok((mut pipe, _)) =

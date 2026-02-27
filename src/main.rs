@@ -81,7 +81,20 @@ fn main() -> Result<()> {
 
 fn init_logging() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    let ansi = supports_color();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(ansi)
+        .init();
+}
+
+/// 检测终端是否支持色彩，避免在不支持 ANSI 的终端中输出转义序列
+fn supports_color() -> bool {
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return false;
+    }
+    std::env::var("TERM").map_or(false, |term| term != "dumb")
 }
 
 fn resolve_config_path(arg: Option<PathBuf>) -> PathBuf {
