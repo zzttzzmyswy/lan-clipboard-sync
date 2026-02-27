@@ -11,12 +11,15 @@ use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 const SUPPRESS_WINDOW: Duration = Duration::from_millis(1500);
 
 /// 核心服务：封装剪贴板监听、网络服务器与去重逻辑。
 pub struct CoreService {
     config: AppConfig,
+    /// 本实例唯一 ID，用于识别并忽略自己发出的回环消息
+    instance_id: Uuid,
     clipboard_change_rx: mpsc::Receiver<()>,
     incoming_msg_rx: mpsc::Receiver<ProtocolMessage>,
     _clipboard_watcher: JoinHandle<()>,
@@ -44,8 +47,12 @@ impl CoreService {
             }
         });
 
+        let instance_id = Uuid::new_v4();
+        tracing::debug!("instance_id={}", instance_id);
+
         Ok(Self {
             config,
+            instance_id,
             clipboard_change_rx: clip_rx,
             incoming_msg_rx: incoming_rx,
             _clipboard_watcher: watcher,
@@ -91,13 +98,13 @@ impl CoreService {
                     if let Some(item) = clipboard.read()? {
                         match &item {
                             ClipboardItem::Text(t) => {
-                                tracing::info!("local clipboard changed: text len={}", t.len());
+                                tracing::debug!("local clipboard changed: text len={}", t.len());
                             }
                             ClipboardItem::Image(bytes) => {
-                                tracing::info!("local clipboard changed: image bytes={}", bytes.len());
+                                tracing::debug!("local clipboard changed: image bytes={}", bytes.len());
                             }
                             ClipboardItem::Files(files) => {
-                                tracing::info!("local clipboard changed: {} file(s)", files.len());
+                                tracing::debug!("local clipboard changed: {} file(s)", files.len());
                             }
                         }
                         if let Some(h) = hash_item(&item) {
@@ -109,13 +116,16 @@ impl CoreService {
                         if let Some(msg) = self.build_clipboard_message(&item)? {
                             tracing::info!("broadcasting clipboard update to peers");
                             broadcast_to_peers(&self.config, &msg).await?;
-                            tracing::debug!("broadcasted clipboard update to peers successfully");
                         }
                     }
                 }
                 Some(msg) = self.incoming_msg_rx.recv() => {
-                    tracing::debug!("received message from peer: {:?}", msg);
-                    let ProtocolMessage::ClipboardUpdate { content_type, payload_size: _, payload } = msg;
+                    let ProtocolMessage::ClipboardUpdate { sender_id, content_type, payload_size: _, payload } = msg;
+                    // 忽略自己发出的回环消息（例如 peers 中包含本机时的广播）
+                    if sender_id == *self.instance_id.as_bytes() {
+                        tracing::debug!("ignoring self-echo message (sender_id matches instance_id)");
+                        continue;
+                    }
                     tracing::info!(
                         "received remote clipboard type={:?} bytes={}",
                         content_type,
@@ -145,6 +155,7 @@ impl CoreService {
             ClipboardItem::Text(text) => {
                 let payload = text.as_bytes().to_vec();
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
+                    sender_id: *self.instance_id.as_bytes(),
                     content_type: ContentType::Text,
                     payload_size: payload.len() as u64,
                     payload,
@@ -153,6 +164,7 @@ impl CoreService {
             ClipboardItem::Image(png) => {
                 let payload = png.clone();
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
+                    sender_id: *self.instance_id.as_bytes(),
                     content_type: ContentType::Image,
                     payload_size: payload.len() as u64,
                     payload,
@@ -200,6 +212,7 @@ impl CoreService {
                 }
                 let payload = serde_json::to_vec(&entries)?;
                 Ok(Some(ProtocolMessage::ClipboardUpdate {
+                    sender_id: *self.instance_id.as_bytes(),
                     content_type: ContentType::Files,
                     payload_size: payload.len() as u64,
                     payload,

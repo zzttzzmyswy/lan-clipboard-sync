@@ -1,6 +1,6 @@
 [package]
 name = "lan-clipboard-sync"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 description = "A LAN clipboard synchronization tool supporting text, images, and files across Windows and Linux"
 license = "MIT"
@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hex = "0.4"
 chrono = "0.4"
 image = "0.25"
+uuid = { version = "1", features = ["v4"] }
 
 # tray-item 按平台分别配置：ksni 依赖 libdbus，仅 Linux 有，Windows 无需
 [target.'cfg(target_os = "linux")'.dependencies]
