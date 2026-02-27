@@ -15,6 +15,10 @@ struct Args {
     /// 指定配置文件的路径
     #[arg(short, long)]
     config: Option<PathBuf>,
+
+    /// 仅启动配置 UI 窗口（供托盘菜单调用，内部使用）
+    #[arg(long, hide = true)]
+    config_ui: bool,
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -23,19 +27,13 @@ fn run_with_tray(config: AppConfig, config_path: PathBuf) -> Result<()> {
     let tray = TrayManager::new(config_path.clone())?;
     tracing::info!("system tray initialized");
 
-    // 创建并运行核心服务
+    // 创建并运行核心服务（独立线程，退出时随进程结束）
     let rt = tokio::runtime::Runtime::new()?;
     let mut core = CoreService::new(config)?;
-
-    // 在独立线程中运行核心服务
-    let (core_result_tx, _core_result_rx) = std::sync::mpsc::channel::<Result<()>>();
-    let shutdown_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let shutdown_flag_clone = shutdown_flag.clone();
-
     std::thread::spawn(move || {
-        let result = rt.block_on(async move { core.run().await });
-        let _ = core_result_tx.send(result);
-        shutdown_flag_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Err(e) = rt.block_on(core.run()) {
+            tracing::error!("core service error: {e}");
+        }
     });
 
     // 在主线程中监听托盘事件
@@ -45,8 +43,19 @@ fn run_with_tray(config: AppConfig, config_path: PathBuf) -> Result<()> {
                 tracing::info!("quit requested, exiting...");
                 return Ok(());
             }
+            TrayEvent::OpenConfigUI => {
+                let path = config_path.clone();
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(&exe)
+                        .arg("--config-ui")
+                        .args(["--config", path.to_string_lossy().as_ref()])
+                        .spawn();
+                } else {
+                    tracing::error!("无法获取当前可执行文件路径，无法打开配置窗口");
+                }
+            }
             TrayEvent::OpenConfig => {
-                tracing::info!("config opened");
+                // 复制配置路径，无需额外处理
             }
         }
     }
@@ -65,6 +74,14 @@ fn main() -> Result<()> {
     init_logging();
 
     let config_path = resolve_config_path(args.config.clone());
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    if args.config_ui {
+        // 仅运行配置 UI（子进程模式，解决关闭后无法再次打开的问题）
+        lan_clipboard_sync::config_ui::run(config_path);
+        return Ok(());
+    }
+
     let config = AppConfig::load(config_path.clone())?;
 
     #[cfg(any(target_os = "linux", target_os = "windows"))]

@@ -96,6 +96,18 @@ impl AppConfig {
         }
         Ok(())
     }
+
+    /// 将配置保存到指定路径（TOML 格式）。
+    pub fn save(&self, path: &PathBuf) -> Result<(), ConfigError> {
+        self.validate()?;
+        let parent = path.parent().ok_or_else(|| {
+            ConfigError::Invalid("config path has no parent directory".into())
+        })?;
+        fs::create_dir_all(parent)?;
+        let toml = toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        fs::write(path, toml)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

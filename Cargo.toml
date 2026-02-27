@@ -1,6 +1,6 @@
 [package]
 name = "lan-clipboard-sync"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "A LAN clipboard synchronization tool supporting text, images, and files across Windows and Linux"
 license = "MIT"
@@ -27,10 +27,16 @@ chrono = "0.4"
 image = "0.25"
 uuid = { version = "1", features = ["v4"] }
 
+# 配置 UI（仅 Linux/Windows 托盘模式需要）
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow"] }
+
 # tray-item 按平台分别配置：ksni 依赖 libdbus，仅 Linux 有，Windows 无需
+# winit: Linux 下配置 UI 需在非主线程创建窗口，需 with_any_thread
 [target.'cfg(target_os = "linux")'.dependencies]
 tray-item = { version = "0.10", features = ["ksni"] }
 wl-clipboard-rs = "0.9"
+winit = { version = "0.29", default-features = false, features = ["wayland", "x11"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-item = { version = "0.10", default-features = false }

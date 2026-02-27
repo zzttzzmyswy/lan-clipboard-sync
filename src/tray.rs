@@ -127,12 +127,15 @@ fn embedded_tray_icon() -> Result<IconSource> {
 pub enum TrayEvent {
     /// 退出程序
     Quit,
-    /// 打开配置文件
+    /// 打开配置 UI
+    OpenConfigUI,
+    /// 复制配置路径（已废弃，保留兼容）
     OpenConfig,
 }
 
 /// 系统托盘管理器。
 pub struct TrayManager {
+    #[allow(dead_code)]
     tray: TrayItem,
     event_rx: mpsc::Receiver<TrayEvent>,
     shutdown: Arc<AtomicBool>,
@@ -160,9 +163,16 @@ impl TrayManager {
             .map_err(|e| anyhow!("failed to add version label: {}", e))?;
 
         // 添加菜单项
+        let event_tx_clone = event_tx.clone();
+        tray.add_menu_item("配置", move || {
+            tracing::info!("Config UI menu item clicked");
+            let _ = event_tx_clone.send(TrayEvent::OpenConfigUI);
+        })
+        .map_err(|e| anyhow!("failed to add Config menu item: {}", e))?;
+
         let config_path_clone = config_path.clone();
         let event_tx_clone = event_tx.clone();
-        tray.add_menu_item("Copy Config Path", move || {
+        tray.add_menu_item("复制配置路径", move || {
             tracing::info!("Copy Config Path menu item clicked");
             copy_config_dir_to_clipboard(&config_path_clone);
             let _ = event_tx_clone.send(TrayEvent::OpenConfig);

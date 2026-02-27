@@ -1,5 +1,7 @@
 mod clipboard;
 mod config;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod config_ui;
 mod core;
 mod crypto;
 mod network;

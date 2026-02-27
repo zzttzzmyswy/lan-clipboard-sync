@@ -11,6 +11,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 
+/// 入站帧体的最大字节数（约 50 MiB），防止恶意/异常连接导致 OOM
+const MAX_FRAME_BODY: usize = 50 * 1024 * 1024;
+
+/// 入站连接读超时，防止慢速连接占用资源
+const CONNECTION_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// 网络层：负责监听远端连接并将解密后的消息推送到核心逻辑。
 pub struct NetworkServer {
     addr: SocketAddr,
@@ -42,27 +48,44 @@ impl NetworkServer {
 }
 
 /// 处理单个入站 TCP 连接：读取、解密并解码协议消息后发送到通道。
+/// 带帧长度上限校验和读超时，防止 OOM 与资源耗尽。
 async fn handle_connection(
     mut stream: TcpStream,
     key: Key,
     incoming_tx: mpsc::Sender<ProtocolMessage>,
 ) -> Result<()> {
-    // 先读取 4 字节长度
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
+    let read_ops = async {
+        // 先读取 4 字节长度
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
 
-    if body.len() < 12 {
-        return Err(anyhow!("frame body too short for nonce"));
-    }
-    let mut nonce = [0u8; 12];
-    nonce.copy_from_slice(&body[..12]);
-    let ciphertext = &body[12..];
-    let plaintext = decrypt(&key, &nonce, ciphertext)?;
-    let msg = decode_message(&plaintext)?;
-    incoming_tx.send(msg).await.map_err(|_| anyhow!("channel closed"))?;
+        if len > MAX_FRAME_BODY {
+            return Err(anyhow!(
+                "frame body too large: {} > {} bytes",
+                len,
+                MAX_FRAME_BODY
+            ));
+        }
+
+        let mut body = vec![0u8; len];
+        stream.read_exact(&mut body).await?;
+
+        if body.len() < 12 {
+            return Err(anyhow!("frame body too short for nonce"));
+        }
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&body[..12]);
+        let ciphertext = &body[12..];
+        let plaintext = decrypt(&key, &nonce, ciphertext)?;
+        let msg = decode_message(&plaintext)?;
+        incoming_tx.send(msg).await.map_err(|_| anyhow!("channel closed"))?;
+        Ok(())
+    };
+
+    tokio::time::timeout(CONNECTION_READ_TIMEOUT, read_ops)
+        .await
+        .map_err(|_| anyhow!("connection read timeout"))??;
     Ok(())
 }
 
