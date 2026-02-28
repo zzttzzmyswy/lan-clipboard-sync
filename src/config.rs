@@ -45,7 +45,9 @@ impl AppConfig {
         #[cfg(target_os = "linux")]
         {
             if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
-                return PathBuf::from(dir).join("lan-clipboard-sync").join("config.toml");
+                return PathBuf::from(dir)
+                    .join("lan-clipboard-sync")
+                    .join("config.toml");
             }
             if let Some(home) = std::env::var_os("HOME") {
                 return PathBuf::from(home)
@@ -74,7 +76,9 @@ impl AppConfig {
             match ext {
                 "json" => serde_json::from_str::<AppConfig>(&data)
                     .map_err(|e| ConfigError::Parse(e.to_string()))?,
-                "toml" | _ => toml::from_str::<AppConfig>(&data)
+                "toml" => toml::from_str::<AppConfig>(&data)
+                    .map_err(|e| ConfigError::Parse(e.to_string()))?,
+                _ => toml::from_str::<AppConfig>(&data)
                     .map_err(|e| ConfigError::Parse(e.to_string()))?,
             }
         } else {
@@ -89,9 +93,11 @@ impl AppConfig {
         if self.listen_port == 0 {
             return Err(ConfigError::Invalid("listen_port must be > 0".into()));
         }
-        if self.secret_key.len() < 32 {
+        let key_bytes = hex::decode(&self.secret_key)
+            .map_err(|_| ConfigError::Invalid("secret_key must be valid hex string".into()))?;
+        if key_bytes.len() != 32 {
             return Err(ConfigError::Invalid(
-                "secret_key must be at least 32 hex chars".into(),
+                "secret_key must be exactly 32 bytes (64 hex chars)".into(),
             ));
         }
         Ok(())
@@ -100,9 +106,9 @@ impl AppConfig {
     /// 将配置保存到指定路径（TOML 格式）。
     pub fn save(&self, path: &PathBuf) -> Result<(), ConfigError> {
         self.validate()?;
-        let parent = path.parent().ok_or_else(|| {
-            ConfigError::Invalid("config path has no parent directory".into())
-        })?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| ConfigError::Invalid("config path has no parent directory".into()))?;
         fs::create_dir_all(parent)?;
         let toml = toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
         fs::write(path, toml)?;

@@ -175,8 +175,8 @@ impl CoreService {
                 for f in files {
                     let raw = &f.path;
                     // 剪贴板返回的路径可能带 file:// 前缀，需要去掉
-                    let clean = if raw.starts_with("file://") {
-                        &raw[7..]
+                    let clean = if let Some(stripped) = raw.strip_prefix("file://") {
+                        stripped
                     } else {
                         raw.as_str()
                     };
@@ -198,7 +198,7 @@ impl CoreService {
                     let size = meta.len();
                     if size > self.config.max_file_size {
                         tracing::warn!("skip file {} larger than max_file_size", path.display());
-                        return Ok(None);
+                        continue;
                     }
                     let content = std::fs::read(path)?;
                     let name = path
@@ -305,22 +305,22 @@ fn hash_item(item: &ClipboardItem) -> Option<u64> {
     match item {
         ClipboardItem::Text(t) => t.hash(&mut hasher),
         ClipboardItem::Image(bytes) => bytes.hash(&mut hasher),
-        ClipboardItem::Files(files) => {
+ClipboardItem::Files(files) => {
             "files".hash(&mut hasher);
             for f in files {
                 // 只用文件名（不含目录）+ 文件大小来算哈希，
                 // 这样发送端（file:///原始/路径/foo.txt）和
                 // 接收端（/Downloads/lan-clipboard/foo.txt）能得到相同结果
-                let p = std::path::Path::new(&f.path);
-                let clean = if f.path.starts_with("file://") {
-                    std::path::Path::new(&f.path[7..])
+                let path_str = if let Some(stripped) = f.path.strip_prefix("file://") {
+                    stripped
                 } else {
-                    p
+                    &f.path
                 };
-                if let Some(name) = clean.file_name() {
+                let p = std::path::Path::new(path_str);
+                if let Some(name) = p.file_name() {
                     name.hash(&mut hasher);
                 }
-                if let Ok(meta) = std::fs::metadata(clean) {
+                if let Ok(meta) = std::fs::metadata(p) {
                     meta.len().hash(&mut hasher);
                 }
             }

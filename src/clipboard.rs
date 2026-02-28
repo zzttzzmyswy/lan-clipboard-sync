@@ -71,8 +71,7 @@ impl SystemClipboard {
 
         #[cfg(not(target_os = "linux"))]
         {
-            let ctx =
-                clipboard_rs::ClipboardContext::new().map_err(|e| anyhow!(e.to_string()))?;
+            let ctx = clipboard_rs::ClipboardContext::new().map_err(|e| anyhow!(e.to_string()))?;
             Ok(Self {
                 backend: ClipboardRsBackend { ctx },
             })
@@ -189,7 +188,9 @@ impl ClipboardRsBackend {
 impl WaylandClipboardBackend {
     fn read(&self) -> Result<Option<ClipboardItem>> {
         use std::io::Read;
-        use wl_clipboard_rs::paste::{get_contents, get_mime_types, ClipboardType, Error, MimeType, Seat};
+        use wl_clipboard_rs::paste::{
+            get_contents, get_mime_types, ClipboardType, Error, MimeType, Seat,
+        };
 
         let mime_types = match get_mime_types(ClipboardType::Regular, Seat::Unspecified) {
             Ok(m) => m,
@@ -200,9 +201,11 @@ impl WaylandClipboardBackend {
 
         // 优先级: text/uri-list (文件) > image/* > text
         if mime_types.contains("text/uri-list") {
-            if let Ok((mut pipe, _)) =
-                get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific("text/uri-list"))
-            {
+            if let Ok((mut pipe, _)) = get_contents(
+                ClipboardType::Regular,
+                Seat::Unspecified,
+                MimeType::Specific("text/uri-list"),
+            ) {
                 let mut buf = Vec::new();
                 if pipe.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
                     let uri_list = String::from_utf8_lossy(&buf);
@@ -213,8 +216,8 @@ impl WaylandClipboardBackend {
                             if line.is_empty() || line.starts_with('#') {
                                 return None;
                             }
-                            let path = if line.starts_with("file://") {
-                                url_decode(&line[7..])
+                            let path = if let Some(stripped) = line.strip_prefix("file://") {
+                                url_decode(stripped)
                             } else {
                                 line.to_string()
                             };
@@ -239,9 +242,11 @@ impl WaylandClipboardBackend {
             .find(|m| m.starts_with("image/png"))
             .map(|s| s.as_str());
         if let Some(mime) = image_mime {
-            if let Ok((mut pipe, _)) =
-                get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific(mime))
-            {
+            if let Ok((mut pipe, _)) = get_contents(
+                ClipboardType::Regular,
+                Seat::Unspecified,
+                MimeType::Specific(mime),
+            ) {
                 let mut buf = Vec::new();
                 if pipe.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
                     tracing::debug!("wayland clipboard read: image bytes={}", buf.len());
@@ -365,17 +370,15 @@ fn spawn_clipboard_rs_watcher(tx: mpsc::Sender<()>) -> thread::JoinHandle<()> {
         }
     }
 
-    thread::spawn(move || {
-        match ClipboardWatcherContext::<Handler>::new() {
-            Ok(mut watcher) => {
-                tracing::info!("clipboard watcher started (clipboard-rs)");
-                watcher.add_handler(Handler { tx });
-                watcher.start_watch();
-                tracing::warn!("clipboard watcher exited");
-            }
-            Err(e) => {
-                tracing::error!("clipboard watcher failed to start: {}", e);
-            }
+    thread::spawn(move || match ClipboardWatcherContext::<Handler>::new() {
+        Ok(mut watcher) => {
+            tracing::info!("clipboard watcher started (clipboard-rs)");
+            watcher.add_handler(Handler { tx });
+            watcher.start_watch();
+            tracing::warn!("clipboard watcher exited");
+        }
+        Err(e) => {
+            tracing::error!("clipboard watcher failed to start: {}", e);
         }
     })
 }
@@ -410,14 +413,18 @@ fn spawn_wayland_clipboard_watcher(tx: mpsc::Sender<()>) -> thread::JoinHandle<(
 #[cfg(target_os = "linux")]
 fn read_wayland_for_watcher() -> Option<ClipboardItem> {
     use std::io::Read;
-    use wl_clipboard_rs::paste::{get_contents, get_mime_types, ClipboardType, Error, MimeType, Seat};
+    use wl_clipboard_rs::paste::{
+        get_contents, get_mime_types, ClipboardType, Error, MimeType, Seat,
+    };
 
     let mime_types = get_mime_types(ClipboardType::Regular, Seat::Unspecified).ok()?;
 
     if mime_types.contains("text/uri-list") {
-        if let Ok((mut pipe, _)) =
-            get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific("text/uri-list"))
-        {
+        if let Ok((mut pipe, _)) = get_contents(
+            ClipboardType::Regular,
+            Seat::Unspecified,
+            MimeType::Specific("text/uri-list"),
+        ) {
             let mut buf = Vec::new();
             if pipe.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
                 let uri_list = String::from_utf8_lossy(&buf);
@@ -428,8 +435,8 @@ fn read_wayland_for_watcher() -> Option<ClipboardItem> {
                         if line.is_empty() || line.starts_with('#') {
                             return None;
                         }
-                        let path = if line.starts_with("file://") {
-                            url_decode(&line[7..])
+                        let path = if let Some(stripped) = line.strip_prefix("file://") {
+                            url_decode(stripped)
                         } else {
                             line.to_string()
                         };
@@ -447,11 +454,17 @@ fn read_wayland_for_watcher() -> Option<ClipboardItem> {
         }
     }
 
-    let image_mime = mime_types.iter().find(|m| m.starts_with("image/")).map(|s| s.as_str());
+    let image_mime = mime_types
+        .iter()
+        .find(|m| m.starts_with("image/png"))
+        .map(|s| s.as_str())
+        .or_else(|| mime_types.iter().find(|m| m.starts_with("image/")).map(|s| s.as_str()));
     if let Some(mime) = image_mime {
-        if let Ok((mut pipe, _)) =
-            get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific(mime))
-        {
+        if let Ok((mut pipe, _)) = get_contents(
+            ClipboardType::Regular,
+            Seat::Unspecified,
+            MimeType::Specific(mime),
+        ) {
             let mut buf = Vec::new();
             if pipe.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
                 return Some(ClipboardItem::Image(buf));
@@ -493,7 +506,7 @@ fn hash_clipboard_item(item: &ClipboardItem) -> Option<u64> {
                 if let Some(name) = p.file_name() {
                     name.hash(&mut hasher);
                 }
-                if let Ok(meta) = std::fs::metadata(&f.path) {
+                if let Ok(meta) = std::fs::metadata(p) {
                     meta.len().hash(&mut hasher);
                 }
             }

@@ -129,7 +129,7 @@ fn supports_color() -> bool {
     if !std::io::stdout().is_terminal() {
         return false;
     }
-    std::env::var("TERM").map_or(false, |term| term != "dumb")
+    std::env::var("TERM").is_ok_and(|term| term != "dumb")
 }
 
 fn resolve_config_path(arg: Option<PathBuf>) -> PathBuf {

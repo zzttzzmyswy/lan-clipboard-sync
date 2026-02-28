@@ -3,9 +3,9 @@
 //! 图标在编译期通过 `include_bytes!` 内嵌到二进制中，运行时无需加载外部文件。
 
 use anyhow::{anyhow, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tray_item::{IconSource, TrayItem};
 
 /// 编译期内嵌的托盘图标（PNG）
@@ -52,7 +52,7 @@ fn embedded_tray_icon() -> Result<IconSource> {
     {
         use image::ImageReader;
         use std::io::Cursor;
-        use windows_sys::Win32::UI::WindowsAndMessaging::CreateIcon;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateIcon, DestroyIcon};
 
         let img = ImageReader::new(Cursor::new(ICON_PNG))
             .with_guessed_format()
@@ -69,7 +69,9 @@ fn embedded_tray_icon() -> Result<IconSource> {
         // CreateIcon 需要：AND 遮罩（从 alpha 派生）+ BGRA 颜色数据
         // AND 遮罩：透明(alpha=0) -> 255，不透明(alpha=255) -> 0
         let mut and_mask = Vec::with_capacity(pixel_count);
-        let pixels = unsafe { std::slice::from_raw_parts_mut(rgba.as_mut_ptr() as *mut [u8; 4], pixel_count) };
+        let pixels = unsafe {
+            std::slice::from_raw_parts_mut(rgba.as_mut_ptr() as *mut [u8; 4], pixel_count)
+        };
         for pixel in pixels {
             and_mask.push(pixel[3].wrapping_sub(u8::MAX)); // 反转 alpha
             pixel.swap(0, 2); // RGBA -> BGRA
@@ -139,6 +141,24 @@ pub struct TrayManager {
     tray: TrayItem,
     event_rx: mpsc::Receiver<TrayEvent>,
     shutdown: Arc<AtomicBool>,
+    #[cfg(target_os = "windows")]
+    icon_handle: windows_sys::Win32::Foundation::HICON,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for TrayManager {
+    fn drop(&mut self) {
+        if self.icon_handle != 0 {
+            unsafe {
+                DestroyIcon(self.icon_handle);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl Drop for TrayManager {
+    fn drop(&mut self) {}
 }
 
 impl TrayManager {
@@ -190,7 +210,29 @@ impl TrayManager {
 
         tracing::info!("system tray initialized");
 
-        Ok(Self { tray, event_rx, shutdown })
+        #[cfg(target_os = "windows")]
+        {
+            let icon_handle = if let IconSource::RawIcon(hicon) = icon_source {
+                hicon
+            } else {
+                0
+            };
+            Ok(Self {
+                tray,
+                event_rx,
+                shutdown,
+                icon_handle,
+            })
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(Self {
+                tray,
+                event_rx,
+                shutdown,
+            })
+        }
     }
 
     /// 尝试从托盘接收事件（非阻塞）。
@@ -202,7 +244,9 @@ impl TrayManager {
 
     /// 阻塞等待托盘事件。
     pub fn recv(&self) -> Result<TrayEvent> {
-        self.event_rx.recv().map_err(|e| anyhow!("failed to receive tray event: {}", e))
+        self.event_rx
+            .recv()
+            .map_err(|e| anyhow!("failed to receive tray event: {}", e))
     }
 
     /// 检查是否应该关闭程序。

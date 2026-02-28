@@ -36,7 +36,7 @@ impl NetworkServer {
         let listener = TcpListener::bind(self.addr).await?;
         loop {
             let (stream, _) = listener.accept().await?;
-            let key = self.key.clone();
+            let key = self.key;
             let tx = self.incoming_tx.clone();
             tokio::spawn(async move {
                 if let Err(e) = handle_connection(stream, key, tx).await {
