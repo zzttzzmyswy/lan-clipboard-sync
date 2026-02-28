@@ -36,6 +36,9 @@ fn run_with_tray(config: AppConfig, config_path: PathBuf) -> Result<()> {
         }
     });
 
+    // 配置 UI 子进程句柄：进程内锁定，确保同时只打开一个配置窗口
+    let mut config_ui_child: Option<std::process::Child> = None;
+
     // 在主线程中监听托盘事件
     loop {
         match tray.recv()? {
@@ -44,12 +47,27 @@ fn run_with_tray(config: AppConfig, config_path: PathBuf) -> Result<()> {
                 return Ok(());
             }
             TrayEvent::OpenConfigUI => {
+                // 若已有子进程，检查是否已退出（try_wait 会回收僵尸进程）
+                if let Some(mut child) = config_ui_child.take() {
+                    // try_wait() -> Ok(None) 表示进程仍在运行
+                    if let Ok(None) = child.try_wait() {
+                        config_ui_child = Some(child);
+                        tracing::debug!("配置窗口已打开，忽略重复点击");
+                        continue;
+                    }
+                    // 已退出，config_ui_child 保持 None，可重新启动
+                }
+
                 let path = config_path.clone();
                 if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(&exe)
+                    match std::process::Command::new(&exe)
                         .arg("--config-ui")
                         .args(["--config", path.to_string_lossy().as_ref()])
-                        .spawn();
+                        .spawn()
+                    {
+                        Ok(child) => config_ui_child = Some(child),
+                        Err(e) => tracing::error!("无法启动配置窗口: {}", e),
+                    }
                 } else {
                     tracing::error!("无法获取当前可执行文件路径，无法打开配置窗口");
                 }
