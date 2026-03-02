@@ -1,7 +1,7 @@
 //! 网络传输层：基于 TCP + 对称加密的剪贴板消息收发。
 
 use crate::config::AppConfig;
-use crate::crypto::{decrypt, encrypt, key_from_hex};
+use crate::crypto::{decrypt, encrypt, handshake_client, handshake_server, key_from_hex};
 use crate::protocol::{decode_message, encode_frame, encode_message, ProtocolMessage};
 use anyhow::{anyhow, Result};
 use chacha20poly1305::Key;
@@ -47,13 +47,19 @@ impl NetworkServer {
     }
 }
 
-/// 处理单个入站 TCP 连接：读取、解密并解码协议消息后发送到通道。
+/// 处理单个入站 TCP 连接：先完成密钥交换握手，再读取、解密并解码协议消息后发送到通道。
 /// 带帧长度上限校验和读超时，防止 OOM 与资源耗尽。
 async fn handle_connection(
     mut stream: TcpStream,
-    key: Key,
+    psk: Key,
     incoming_tx: mpsc::Sender<ProtocolMessage>,
 ) -> Result<()> {
+    let psk_bytes: [u8; 32] = psk
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("key length mismatch"))?;
+    let key = handshake_server(&mut stream, &psk_bytes).await?;
+
     let read_ops = async {
         // 先读取 4 字节长度
         let mut len_buf = [0u8; 4];
@@ -90,28 +96,34 @@ async fn handle_connection(
 }
 
 /// 将剪贴板更新消息加密后广播到配置中的所有 peers（2秒超时，并行执行）。
+/// 每次连接先完成 X25519 密钥交换握手，再使用派生出的会话密钥加密发送。
 pub async fn broadcast_to_peers(config: &AppConfig, msg: &ProtocolMessage) -> Result<()> {
-    let key = key_from_hex(&config.secret_key)?;
+    let psk = key_from_hex(&config.secret_key)?;
+    let psk_bytes: [u8; 32] = psk
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("key length mismatch"))?;
     let body = encode_message(msg)?;
-    let (nonce, ciphertext) = encrypt(&key, &body)?;
-
-    let mut frame_body = Vec::with_capacity(12 + ciphertext.len());
-    frame_body.extend_from_slice(&nonce);
-    frame_body.extend_from_slice(&ciphertext);
-    let frame = encode_frame(&frame_body);
 
     let timeout_duration = Duration::from_secs(2);
     let mut tasks = Vec::new();
 
     for peer in &config.peers {
         let addr = format!("{}:{}", peer.host, peer.port);
-        let frame_clone = frame.clone();
         let addr_clone = addr.clone();
+        let body_clone = body.clone();
+        let psk_clone = psk_bytes;
 
         let task = tokio::spawn(async move {
             let result = tokio::time::timeout(timeout_duration, async {
                 let mut stream = TcpStream::connect(&addr_clone).await?;
-                stream.write_all(&frame_clone).await?;
+                let key = handshake_client(&mut stream, &psk_clone).await?;
+                let (nonce, ciphertext) = encrypt(&key, &body_clone)?;
+                let mut frame_body = Vec::with_capacity(12 + ciphertext.len());
+                frame_body.extend_from_slice(&nonce);
+                frame_body.extend_from_slice(&ciphertext);
+                let frame = encode_frame(&frame_body);
+                stream.write_all(&frame).await?;
                 Ok::<_, anyhow::Error>(())
             })
             .await;

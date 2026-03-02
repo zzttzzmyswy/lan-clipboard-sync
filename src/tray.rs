@@ -52,7 +52,7 @@ fn embedded_tray_icon() -> Result<IconSource> {
     {
         use image::ImageReader;
         use std::io::Cursor;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateIcon, DestroyIcon};
+        use windows_sys::Win32::UI::WindowsAndMessaging::CreateIcon;
 
         let img = ImageReader::new(Cursor::new(ICON_PNG))
             .with_guessed_format()
@@ -142,12 +142,14 @@ pub struct TrayManager {
     event_rx: mpsc::Receiver<TrayEvent>,
     shutdown: Arc<AtomicBool>,
     #[cfg(target_os = "windows")]
-    icon_handle: windows_sys::Win32::Foundation::HICON,
+    icon_handle: windows_sys::Win32::UI::WindowsAndMessaging::HICON,
 }
 
 #[cfg(target_os = "windows")]
 impl Drop for TrayManager {
     fn drop(&mut self) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+        // HICON 在 windows_sys 中为 isize 类型别名，0 表示无效
         if self.icon_handle != 0 {
             unsafe {
                 DestroyIcon(self.icon_handle);
@@ -173,7 +175,7 @@ impl TrayManager {
 
         // 创建托盘项，使用内嵌图标（编译期嵌入，不依赖外部文件）
         let icon_source = embedded_tray_icon()?;
-        let mut tray = TrayItem::new("LAN Clipboard Sync", icon_source)
+        let mut tray = TrayItem::new("LAN Clipboard Sync", icon_source.clone())
             .map_err(|e| anyhow!("failed to create tray item: {}", e))?;
 
         // 添加不可点击的标题信息

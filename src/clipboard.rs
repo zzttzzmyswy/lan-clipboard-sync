@@ -322,6 +322,7 @@ impl WaylandClipboardBackend {
 }
 
 /// 简易 URI 解码（file:// 路径可能含 %XX）
+#[cfg(not(target_os = "windows"))]
 fn url_decode(input: &str) -> String {
     let mut out = Vec::with_capacity(input.len());
     let bytes = input.as_bytes();
